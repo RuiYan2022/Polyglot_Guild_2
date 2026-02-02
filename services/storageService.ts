@@ -286,14 +286,10 @@ class StorageService {
         lastActive: Date.now()
       }, { merge: true });
       
-<<<<<<< HEAD
       // Fire and forget the global stat update to avoid blocking local progress saves on permission errors
       this.updateGlobalStudentStats(progress.studentUid, progress.studentName).catch(() => {
         // Silently fail global aggregation if permissions are insufficient for the student
       });
-=======
-      await this.updateGlobalStudentStats(progress.studentUid, progress.studentName);
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
     } catch (error) {
       this.handleErr(error, "saveProgress");
     }
@@ -342,18 +338,10 @@ class StorageService {
         completedSets: Array.from(new Set(completedSets))
       }, { merge: true });
     } catch (error) {
-<<<<<<< HEAD
       console.warn(`Firestore Warning [updateGlobalStudentStats]:`, error);
       // We don't throw here to avoid disrupting the main saveProgress flow
-=======
-      this.handleErr(error, "updateGlobalStudentStats");
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
     }
   }
 }
 
-<<<<<<< HEAD
 export const storageService = new StorageService();
-=======
-export const storageService = new StorageService();
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
