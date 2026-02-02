@@ -19,11 +19,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
   const [approvedStudents, setApprovedStudents] = useState<StudentProfile[]>([]);
   
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
-<<<<<<< HEAD
   const [selectedSetId, setSelectedSetId] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-=======
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
   const [error, setError] = useState<string | null>(null);
   
   const [showLab, setShowLab] = useState(false);
@@ -155,7 +152,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
     .sort((a, b) => b.lastActive - a.lastActive)
     .slice(0, 5);
 
-<<<<<<< HEAD
   const getPointsForStudent = (studentUid: string) => {
     if (selectedSetId === 'all') {
       const student = approvedStudents.find(s => s.uid === studentUid);
@@ -221,8 +217,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
     document.body.removeChild(link);
   };
 
-=======
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950">
       <div className="p-8 md:p-12 max-w-7xl mx-auto w-full space-y-12">
@@ -377,7 +371,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
               )}
 
               <div className="bg-slate-900 rounded-[2.5rem] border border-white/5 overflow-hidden shadow-2xl">
-<<<<<<< HEAD
                 <div className="px-8 py-6 border-b border-white/5 bg-slate-950/30 flex flex-col sm:flex-row gap-4 justify-between items-center">
                   <h3 className="font-black text-white text-xs uppercase tracking-widest">Academy Personnel Roster</h3>
                   
@@ -409,21 +402,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                       </select>
                     </div>
                   </div>
-=======
-                <div className="px-8 py-6 border-b border-white/5 bg-slate-950/30 flex justify-between items-center">
-                  <h3 className="font-black text-white text-xs uppercase tracking-widest">Academy Personnel Roster</h3>
-                  <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="bg-slate-950 border border-white/10 rounded-xl text-[9px] font-black text-indigo-400 px-4 py-2 uppercase tracking-widest outline-none">
-                    <option value="all">Global Filter</option>
-                    {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
                 </div>
                 <table className="w-full text-left">
                   <thead className="bg-slate-950/50">
                     <tr>
                       <th className="px-8 py-5 text-[9px] font-black text-slate-600 uppercase tracking-widest">Explorer Name</th>
                       <th className="px-8 py-5 text-[9px] font-black text-slate-600 uppercase tracking-widest">Node Syncs</th>
-<<<<<<< HEAD
                       <th 
                         className="px-8 py-5 text-[9px] font-black text-slate-600 uppercase tracking-widest cursor-pointer hover:text-indigo-400 transition-colors"
                         onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
@@ -434,13 +418,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {filteredAndSortedStudents.map(student => (
-=======
-                      <th className="px-8 py-5 text-[9px] font-black text-slate-600 uppercase tracking-widest">Global XP</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {approvedStudents.filter(s => selectedClassId === 'all' || s.classId === selectedClassId).map(student => (
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
                       <tr key={student.uid} className="hover:bg-white/5 transition-colors">
                         <td className="px-8 py-6">
                           <div className="flex items-center gap-4">
@@ -451,7 +428,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                           </div>
                         </td>
                         <td className="px-8 py-6">
-<<<<<<< HEAD
                           <div className="flex gap-2 flex-wrap">
                             {progress
                               .filter(p => p.studentUid === student.uid && (selectedSetId === 'all' || p.questionSetId === selectedSetId))
@@ -478,19 +454,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                         </td>
                       </tr>
                     )}
-=======
-                          <div className="flex gap-2">
-                            {progress.filter(p => p.studentUid === student.uid).map(p => (
-                              <span key={p.id} className="text-[8px] font-black bg-indigo-600/20 text-indigo-400 px-2 py-1 rounded-lg uppercase">
-                                {missions.find(m => m.id === p.questionSetId)?.title || '...'}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-8 py-6 font-black text-white text-lg">{student.globalXp}</td>
-                      </tr>
-                    ))}
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
                   </tbody>
                 </table>
               </div>
