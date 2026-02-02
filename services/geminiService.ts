@@ -1,105 +1,41 @@
 
-<<<<<<< HEAD
-import { GoogleGenAI, Type } from "@google/genai";
 import { ProgrammingLanguage, Question } from '../types';
 
 /**
  * MISSION GENERATION
- * Uses direct SDK for all environments.
+ * Proxies request through the secure /api/generate-missions endpoint.
+ * This keeps the API Key hidden from the client.
  */
-=======
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { ProgrammingLanguage, Question, AIResponse } from '../types';
-
-// Use process.env.API_KEY directly as required by guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
 export const generateMissions = async (
   topic: string, 
   language: ProgrammingLanguage, 
   count: number = 3
 ): Promise<Question[]> => {
-<<<<<<< HEAD
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const result = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Generate ${count} coding missions about "${topic}" in ${language}. 
-                 Each mission should have a title, description, starter code, a brief solution hint, and a points value.
-                 Difficulty must be one of: Easy, Medium, Hard, or Challenging. 
-                 Suggested points: Easy=100, Medium=250, Hard=500, Challenging=1000.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              starterCode: { type: Type.STRING },
-              solutionHint: { type: Type.STRING },
-              difficulty: { type: Type.STRING },
-              points: { type: Type.NUMBER }
-            },
-            required: ["title", "description", "starterCode", "solutionHint", "difficulty", "points"]
-          }
-        }
-      }
+    const response = await fetch('/api/generate-missions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ topic, language, count }),
     });
 
-    const missions = JSON.parse(result.text || '[]');
-    return missions.map((q: any) => ({
-=======
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Generate ${count} coding missions about "${topic}" in ${language}. 
-               Each mission should have a title, description, starter code, a brief solution hint, and a points value.
-               Difficulty must be one of: Easy, Medium, Hard, or Challenging. 
-               Suggested points: Easy=100, Medium=250, Hard=500, Challenging=1000.`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            starterCode: { type: Type.STRING },
-            solutionHint: { type: Type.STRING },
-            difficulty: { type: Type.STRING },
-            points: { type: Type.NUMBER }
-          },
-          required: ["title", "description", "starterCode", "solutionHint", "difficulty", "points"]
-        }
-      }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Intelligence Uplink Failed (Status: ${response.status})`);
     }
-  });
 
-  const rawJson = response.text || '[]';
-  try {
-    const parsed = JSON.parse(rawJson);
-    return parsed.map((q: any) => ({
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
-      ...q,
-      id: `q_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
-    }));
-  } catch (error) {
-<<<<<<< HEAD
-    console.error("SDK Mission Generation Error:", error);
-=======
-    console.error("AI Mission Generation Error:", error);
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
+    return await response.json();
+  } catch (error: any) {
+    console.error("Mission Generation Error:", error);
     return [];
   }
 };
 
-<<<<<<< HEAD
 /**
  * CODE EVALUATION STREAM
- * Uses direct SDK for all environments.
+ * Consumes a text stream from the secure /api/evaluate endpoint.
+ * This ensures production stability and security.
  */
 export const evaluateCodeStream = async function* (
   language: ProgrammingLanguage,
@@ -107,76 +43,41 @@ export const evaluateCodeStream = async function* (
   submittedCode: string
 ) {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const streamResponse = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
-      contents: `You are an expert ${language} tutor. Evaluate the following code submission.
-                 
-                 PROBLEM: ${problemDescription}
-                 
-                 SUBMITTED CODE:
-                 \`\`\`${language.toLowerCase()}
-                 ${submittedCode}
-                 \`\`\`
-                 
-                 INSTRUCTION:
-                 1. Provide conversational feedback and 2-3 specific suggestions for improvement.
-                 2. At the very end of your response, include the diagnostic result in JSON format between [DATA] and [/DATA] tags.
-                 
-                 JSON SCHEMA:
-                 {
-                   "success": boolean,
-                   "score": number,
-                   "feedback": string,
-                   "suggestions": string[]
-                 }`,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 }
-      }
+    const response = await fetch('/api/evaluate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ language, problemDescription, submittedCode }),
     });
 
-    for await (const chunk of streamResponse) {
-      if (chunk.text) {
-        yield { text: chunk.text };
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown connection error');
+      yield { text: `Error: ${errorText}` };
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      yield { text: "Error: Stream reader could not be initialized." };
+      return;
+    }
+
+    // Read the stream from the Edge Function
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk) {
+        // Yield in the format the StudentPortal expects
+        yield { text: chunk };
       }
     }
-  } catch (error) {
-    console.error("SDK Stream Evaluation Error:", error);
-    yield { text: "Error: Could not connect to the AI engine." };
+  } catch (error: any) {
+    console.error("Stream Evaluation Error:", error);
+    yield { text: `System Error: ${error.message || 'The neural link was interrupted.'}` };
   }
-=======
-export const evaluateCodeStream = async (
-  language: ProgrammingLanguage,
-  problemDescription: string,
-  submittedCode: string
-) => {
-  const response = await ai.models.generateContentStream({
-    model: 'gemini-3-flash-preview',
-    contents: `You are an expert ${language} tutor. Evaluate the following code submission.
-               
-               PROBLEM: ${problemDescription}
-               
-               SUBMITTED CODE:
-               \`\`\`${language.toLowerCase()}
-               ${submittedCode}
-               \`\`\`
-               
-               INSTRUCTION:
-               1. Provide conversational feedback and 2-3 specific suggestions for improvement.
-               2. At the very end of your response, include the diagnostic result in JSON format between [DATA] and [/DATA] tags.
-               
-               JSON SCHEMA:
-               {
-                 "success": boolean,
-                 "score": number,
-                 "feedback": string,
-                 "suggestions": string[]
-               }`,
-    config: {
-      thinkingConfig: { thinkingBudget: 0 }
-    }
-  });
-
-  return response;
->>>>>>> 0b6886b30f42ba84b6a79e344ab28656f0d46a20
 };
