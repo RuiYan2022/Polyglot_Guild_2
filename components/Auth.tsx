@@ -14,6 +14,86 @@ interface AuthProps {
   onLogin: (user: any) => void;
 }
 
+export const TAAuth: React.FC<AuthProps> = ({ onLogin }) => {
+  const [academyCode, setAcademyCode] = useState('');
+  const [classCode, setClassCode] = useState('');
+  const [taKey, setTaKey] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const session = await storageService.verifyTAAccess(academyCode, classCode, taKey);
+      if (!session) {
+        throw new Error("Access Denied: Invalid Academy, Class, or Warden Key.");
+      }
+
+      onLogin({
+        role: Role.TA,
+        name: `Warden of ${session.class.name}`,
+        teacher: session.teacher,
+        class: session.class
+      });
+    } catch (error: any) {
+      setErrorMsg(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-md w-full mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="text-center mb-8">
+        <div className="inline-block p-3 bg-emerald-50 rounded-2xl mb-4">
+          <ICONS.Book className="w-8 h-8 text-emerald-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800">Warden Entry</h2>
+        <p className="text-slate-500 mt-2">Access classroom intelligence with authorized keys.</p>
+      </div>
+
+      {errorMsg && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-center">
+          <p className="text-xs font-bold text-red-800">{errorMsg}</p>
+        </div>
+      )}
+
+      <form onSubmit={handleLogin} className="space-y-4">
+        <input 
+          required
+          placeholder="Teacher Academy Code" 
+          className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all uppercase"
+          value={academyCode} onChange={e => setAcademyCode(e.target.value.toUpperCase())}
+        />
+        <input 
+          required
+          placeholder="Class Code" 
+          className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all uppercase"
+          value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())}
+        />
+        <input 
+          required
+          type="password"
+          placeholder="TA Access Key" 
+          className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all uppercase"
+          value={taKey} onChange={e => setTaKey(e.target.value.toUpperCase())}
+        />
+
+        <button 
+          disabled={isLoading}
+          type="submit"
+          className="w-full mt-4 py-4 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95 disabled:bg-slate-300"
+        >
+          {isLoading ? 'Verifying...' : 'Establish Connection'}
+        </button>
+      </form>
+    </div>
+  );
+};
+
 export const TeacherAuth: React.FC<AuthProps> = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [name, setName] = useState('');
@@ -91,7 +171,6 @@ export const TeacherAuth: React.FC<AuthProps> = ({ onLogin }) => {
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
               value={name} onChange={e => setName(e.target.value)}
             />
-            {/* Fix: Passed a function to handle the onChange event correctly and capture the event 'e' */}
             <input 
               required
               placeholder="School/Academy Name" 
@@ -166,28 +245,22 @@ export const StudentAuth: React.FC<AuthProps> = ({ onLogin }) => {
 
     try {
       if (isLogin) {
-        // --- STUDENT LOGIN ---
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
         const profile = await storageService.getStudentProfile(userCredential.user.uid);
         
         if (!profile) throw new Error("Student profile records not found.");
         onLogin({ ...profile, role: Role.STUDENT });
       } else {
-        // --- STUDENT REGISTRATION ---
-        // 1. Validate Master Key
         const teacher = await storageService.getTeacherByCode(masterKey.trim());
         if (!teacher) throw new Error("Invalid Master Key. Please check with your teacher.");
 
-        // 2. Validate Class Code
         const targetClass = await storageService.getClassByCode(classCode.trim());
         if (!targetClass || targetClass.teacherId !== teacher.uid) {
           throw new Error("Class Code not found in this Academy.");
         }
 
-        // 3. Create Auth Account
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
         
-        // 4. Create Student Profile
         const newStudent: StudentProfile = {
           uid: userCredential.user.uid,
           name,
@@ -255,7 +328,6 @@ export const StudentAuth: React.FC<AuthProps> = ({ onLogin }) => {
                  value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())}
                />
             </div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter px-1">Check with your Teacher for keys.</p>
           </>
         )}
         
@@ -312,13 +384,6 @@ export const WaitingRoom: React.FC<{ profile: StudentProfile; onSignOut: () => v
       <p className="text-slate-500 text-lg leading-relaxed mb-8">
         Welcome, <span className="text-slate-900 font-bold">{profile.name}</span>. Your request to join the Academy has been sent. Please wait for your <span className="text-violet-600 font-black">Guild Master</span> to grant clearance.
       </p>
-
-      <div className="flex flex-col items-center gap-6 mb-12">
-        <div className="flex items-center gap-3 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100">
-          <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></div>
-          <span className="text-xs font-black text-amber-700 uppercase tracking-widest">Pending Verification</span>
-        </div>
-      </div>
 
       <button 
         onClick={onSignOut}

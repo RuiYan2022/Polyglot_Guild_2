@@ -4,15 +4,16 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from './services/firebase';
 import { doc, getDoc } from "firebase/firestore";
 import Layout from './components/Layout';
-import { TeacherAuth, StudentAuth, WaitingRoom } from './components/Auth';
+import { TeacherAuth, StudentAuth, TAAuth, WaitingRoom } from './components/Auth';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentPortal from './components/StudentPortal';
+import WardenDashboard from './components/WardenDashboard';
 import { Role } from './types';
 import { ICONS } from './constants';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
-  const [view, setView] = useState<'landing' | 'teacher_auth' | 'student_auth'>('landing');
+  const [view, setView] = useState<'landing' | 'teacher_auth' | 'student_auth' | 'ta_auth'>('landing');
   const [isInitializing, setIsInitializing] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -38,7 +39,10 @@ const App: React.FC = () => {
             }
           }
         } else {
-          setUser(null);
+          // Check if there's a TA session in progress (stored in state only for now)
+          if (user?.role !== Role.TA) {
+            setUser(null);
+          }
         }
       } catch (err: any) {
         setAuthError("Database connection failed.");
@@ -65,6 +69,15 @@ const App: React.FC = () => {
           <p className="text-indigo-400 font-bold tracking-widest uppercase text-xs">Synchronizing Guild Records...</p>
         </div>
       </div>
+    );
+  }
+
+  // TA / Warden View
+  if (user?.role === Role.TA) {
+    return (
+      <Layout user={user} onLogout={handleLogout}>
+        <WardenDashboard teacher={user.teacher} activeClass={user.class} />
+      </Layout>
     );
   }
 
@@ -98,7 +111,7 @@ const App: React.FC = () => {
     <Layout onLogout={handleLogout}>
       <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50 overflow-y-auto">
         {view === 'landing' ? (
-          <div className="max-w-4xl w-full text-center space-y-12 animate-in fade-in zoom-in duration-700 py-12">
+          <div className="max-w-6xl w-full text-center space-y-12 animate-in fade-in zoom-in duration-700 py-12">
             <div className="space-y-4">
               <div className="inline-block p-4 bg-indigo-600 rounded-3xl text-white mb-6 shadow-2xl shadow-indigo-200">
                 <ICONS.Code className="w-16 h-16" />
@@ -106,8 +119,8 @@ const App: React.FC = () => {
               <h1 className="text-5xl md:text-7xl font-black text-slate-900 tracking-tight">
                 Scale Your <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent italic">Coding Academy</span>
               </h1>
-              <p className="text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed">
-                Connect your classroom to the cloud. Build multi-language coding curricula powered by Firebase and Gemini AI.
+              <p className="text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed font-medium">
+                Connect your classroom to the cloud. Build multi-language coding curricula powered by Gemini AI.
               </p>
             </div>
 
@@ -117,8 +130,17 @@ const App: React.FC = () => {
                   <ICONS.Users className="w-8 h-8" />
                 </div>
                 <h3 className="text-2xl font-bold text-slate-800">Guild Master</h3>
-                <p className="text-slate-500 mt-2">Manage your school, create mission packs, and track student growth.</p>
+                <p className="text-slate-500 mt-2 text-sm font-medium">Manage your school, create mission packs, and track student growth.</p>
                 <div className="mt-6 flex items-center gap-2 text-indigo-600 font-bold uppercase text-xs tracking-widest">Teacher Access →</div>
+              </button>
+
+              <button onClick={() => setView('ta_auth')} className="group flex-1 max-w-xs bg-white p-8 rounded-3xl border border-slate-200 shadow-xl hover:shadow-2xl hover:border-emerald-500 transition-all text-left">
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl w-fit mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                  <ICONS.Book className="w-8 h-8" />
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800">Class Warden</h3>
+                <p className="text-slate-500 mt-2 text-sm font-medium">Monitor live student progress and provide tactical assistance.</p>
+                <div className="mt-6 flex items-center gap-2 text-emerald-600 font-bold uppercase text-xs tracking-widest">TA Login →</div>
               </button>
 
               <button onClick={() => setView('student_auth')} className="group flex-1 max-w-xs bg-white p-8 rounded-3xl border border-slate-200 shadow-xl hover:shadow-2xl hover:border-violet-500 transition-all text-left">
@@ -126,15 +148,15 @@ const App: React.FC = () => {
                   <ICONS.Terminal className="w-8 h-8" />
                 </div>
                 <h3 className="text-2xl font-bold text-slate-800">Explorer</h3>
-                <p className="text-slate-500 mt-2">Enter your class code to start your training and gain XP.</p>
+                <p className="text-slate-500 mt-2 text-sm font-medium">Enter your class code to start your training and gain XP.</p>
                 <div className="mt-6 flex items-center gap-2 text-violet-600 font-bold uppercase text-xs tracking-widest">Student Portal →</div>
               </button>
             </div>
           </div>
         ) : (
           <div className="w-full flex flex-col items-center py-12">
-             <button onClick={() => setView('landing')} className="mb-8 text-slate-400 hover:text-indigo-600 flex items-center gap-2 font-bold">← Back to Home</button>
-             {view === 'teacher_auth' ? <TeacherAuth onLogin={setUser} /> : <StudentAuth onLogin={setUser} />}
+             <button onClick={() => setView('landing')} className="mb-8 text-slate-400 hover:text-indigo-600 flex items-center gap-2 font-black uppercase text-[10px] tracking-widest">← Return to Landing</button>
+             {view === 'teacher_auth' ? <TeacherAuth onLogin={setUser} /> : view === 'ta_auth' ? <TAAuth onLogin={setUser} /> : <StudentAuth onLogin={setUser} />}
           </div>
         )}
       </div>

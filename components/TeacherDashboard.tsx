@@ -53,7 +53,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000); // Auto-refresh every 30s for live feel
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [profile.uid, showLab, isCreatingClass]);
 
@@ -87,11 +87,13 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
     setIsCreatingClass(true);
     try {
       const code = `${newClassName.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 900) + 100}`;
+      const taKey = `W-KEY-${Math.floor(Math.random() * 8999) + 1000}`;
       const newClass: ClassProfile = {
         id: `class_${Date.now()}`,
         teacherId: profile.uid,
         name: newClassName.trim(),
         code,
+        taKey,
         createdAt: Date.now()
       };
       await storageService.saveClass(newClass);
@@ -113,6 +115,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
         alert(err.message || "Could not delete classroom.");
       }
     }
+  };
+
+  const handleRegenerateTAKey = async (c: ClassProfile) => {
+    const newKey = `W-KEY-${Math.floor(Math.random() * 8999) + 1000}`;
+    await storageService.saveClass({ ...c, taKey: newKey });
+    await loadData();
   };
 
   const handleDeleteSet = async (setId: string) => {
@@ -375,7 +383,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                   <h3 className="font-black text-white text-xs uppercase tracking-widest">Academy Personnel Roster</h3>
                   
                   <div className="flex flex-wrap items-center gap-4">
-                    {/* Download Button */}
                     <button 
                       onClick={downloadStudentStatus}
                       className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
@@ -384,7 +391,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                       Report
                     </button>
 
-                    {/* Class Filter */}
                     <div className="flex flex-col gap-1">
                       <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest px-1">Classroom</span>
                       <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="bg-slate-950 border border-white/10 rounded-xl text-[9px] font-black text-indigo-400 px-4 py-2 uppercase tracking-widest outline-none">
@@ -393,7 +399,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                       </select>
                     </div>
 
-                    {/* Mission Set Filter */}
                     <div className="flex flex-col gap-1">
                       <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest px-1">Mission Node Filter</span>
                       <select value={selectedSetId} onChange={e => setSelectedSetId(e.target.value)} className="bg-slate-950 border border-white/10 rounded-xl text-[9px] font-black text-indigo-400 px-4 py-2 uppercase tracking-widest outline-none">
@@ -437,9 +442,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                                 </span>
                               ))
                             }
-                            {selectedSetId !== 'all' && !progress.some(p => p.studentUid === student.uid && p.questionSetId === selectedSetId) && (
-                              <span className="text-[8px] font-black text-slate-700 uppercase italic">No sync detected</span>
-                            )}
                           </div>
                         </td>
                         <td className="px-8 py-6 font-black text-white text-lg">
@@ -447,13 +449,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                         </td>
                       </tr>
                     ))}
-                    {filteredAndSortedStudents.length === 0 && (
-                      <tr>
-                        <td colSpan={3} className="px-8 py-20 text-center text-slate-700 font-black uppercase tracking-widest text-xs">
-                          No explorers match your filter parameters.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
@@ -472,10 +467,25 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
                     <div key={c.id} className="bg-slate-900 p-10 rounded-[2.5rem] border border-white/5 shadow-2xl relative group hover:border-indigo-500/50 transition-all">
                        <button onClick={() => handleDeleteClass(c.id)} className="absolute top-6 right-6 text-slate-700 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><ICONS.Trash className="w-5 h-5" /></button>
                        <h3 className="text-2xl font-black text-white mb-8 leading-tight uppercase italic">{c.name}</h3>
-                       <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 flex items-center justify-between group-hover:bg-indigo-900/10 transition-all">
-                          <span className="font-mono text-3xl font-black text-indigo-400 tracking-tighter">{c.code}</span>
-                          <button onClick={() => navigator.clipboard.writeText(c.code)} className="text-[8px] font-black uppercase text-slate-600 hover:text-white transition-colors">Copy ID</button>
+                       
+                       <div className="space-y-4">
+                         <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 flex items-center justify-between group-hover:bg-indigo-900/10 transition-all">
+                            <div>
+                              <p className="text-[8px] font-black text-slate-700 uppercase mb-1">Class ID</p>
+                              <span className="font-mono text-2xl font-black text-indigo-400 tracking-tighter">{c.code}</span>
+                            </div>
+                            <button onClick={() => navigator.clipboard.writeText(c.code)} className="text-[8px] font-black uppercase text-slate-600 hover:text-white transition-colors">Copy</button>
+                         </div>
+
+                         <div className="bg-slate-950 p-6 rounded-2xl border border-emerald-500/10 flex items-center justify-between group-hover:bg-emerald-900/10 transition-all">
+                            <div>
+                              <p className="text-[8px] font-black text-emerald-700 uppercase mb-1">Warden Access Key</p>
+                              <span className="font-mono text-lg font-black text-emerald-400 tracking-tighter">{c.taKey || 'N/A'}</span>
+                            </div>
+                            <button onClick={() => handleRegenerateTAKey(c)} className="text-[8px] font-black uppercase text-emerald-800 hover:text-emerald-400 transition-colors">Refresh</button>
+                         </div>
                        </div>
+
                        <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center text-[9px] font-black uppercase text-slate-600 tracking-widest">
                           <span>Live Connections</span>
                           <span className="text-lg text-white">{approvedStudents.filter(s => s.classId === c.id).length}</span>

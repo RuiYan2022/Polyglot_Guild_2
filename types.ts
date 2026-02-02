@@ -1,7 +1,8 @@
 
 export enum Role {
   TEACHER = 'TEACHER',
-  STUDENT = 'STUDENT'
+  STUDENT = 'STUDENT',
+  TA = 'TA'
 }
 
 export type StudentStatus = 'pending' | 'approved' | 'denied';
@@ -28,6 +29,7 @@ export interface ClassProfile {
   teacherId: string;
   name: string;
   code: string; // Unique class-specific code for students
+  taKey: string; // Secret key for TA access
   createdAt: number;
 }
 
