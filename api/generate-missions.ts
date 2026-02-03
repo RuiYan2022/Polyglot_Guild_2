@@ -12,7 +12,8 @@ export default async function handler(req: Request) {
 
   try {
     const { topic, language, count } = await req.json();
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    // Fix: Always use direct process.env.API_KEY initialization as per guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',

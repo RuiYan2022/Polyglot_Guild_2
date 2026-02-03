@@ -146,7 +146,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
 
   const { totalXp, avgXp, packStats } = (() => {
     const students = approvedStudents;
-    const tXp = students.reduce((acc, s) => acc + (s.globalXp || 0), 0);
+    // Fix: Explicitly type acc and s to avoid unknown type errors in reduce
+    const tXp = students.reduce((acc: number, s: StudentProfile) => acc + (s.globalXp || 0), 0);
     const aXp = students.length > 0 ? Math.floor(tXp / students.length) : 0;
     const stats = missions.map(set => {
       const completedCount = progress.filter(p => p.questionSetId === set.id && p.completedQuestions.length === set.questions.length).length;
@@ -167,7 +168,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ profile }) => {
     }
     const studentProgress = progress.find(p => p.studentUid === studentUid && p.questionSetId === selectedSetId);
     if (!studentProgress) return 0;
-    return Object.values(studentProgress.scores || {}).reduce((acc, score) => acc + (score || 0), 0);
+    // Fix: Explicitly type acc and score to avoid unknown type errors in reduce
+    return Object.values(studentProgress.scores || {}).reduce((acc: number, score: number) => acc + (score || 0), 0);
   };
 
   const filteredAndSortedStudents = approvedStudents

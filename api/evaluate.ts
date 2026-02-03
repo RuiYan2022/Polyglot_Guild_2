@@ -12,7 +12,8 @@ export default async function handler(req: Request) {
 
   try {
     const { language, problemDescription, submittedCode } = await req.json();
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    // Fix: Always use direct process.env.API_KEY initialization as per guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const streamResponse = await ai.models.generateContentStream({
       model: 'gemini-3-flash-preview',
@@ -26,8 +27,11 @@ export default async function handler(req: Request) {
                  \`\`\`
                  
                  INSTRUCTION:
-                 1. Provide conversational feedback and 2-3 specific suggestions for improvement.
-                 2. At the very end of your response, include the diagnostic result in JSON format between [DATA] and [/DATA] tags.
+                 1. If the code is CORRECT and solves the problem optimally:
+                    - Be extremely brief. Just confirm it's correct (e.g., "Logic verified. Great job!").
+                 2. If the code is INCORRECT or has logic errors:
+                    - Provide detailed conversational feedback and 2-3 specific suggestions for improvement.
+                 3. At the very end of your response, include the diagnostic result in JSON format between [DATA] and [/DATA] tags.
                  
                  JSON SCHEMA:
                  {

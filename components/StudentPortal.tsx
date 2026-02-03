@@ -20,6 +20,7 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [code, setCode] = useState('');
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [streamingFeedback, setStreamingFeedback] = useState('');
   const [lastResult, setLastResult] = useState<AIResponse | null>(null);
@@ -53,14 +54,19 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
 
   useEffect(() => { refreshProfile(); }, [globalProfile.uid]);
 
+  // Handle auto-saving of code drafts
   useEffect(() => {
     if (view === 'editor' && progress && activeSet) {
       const currentQ = activeSet.questions[currentIdx];
+      
+      // Update local progress state immediately to keep UI in sync
       const updatedProgress = {
         ...progress,
         draftCodes: { ...(progress.draftCodes || {}), [currentQ.id]: code }
       };
       setProgress(updatedProgress);
+
+      // Debounce saving to Firestore
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(async () => {
         setIsSaving(true);
@@ -68,7 +74,7 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
         setIsSaving(false);
       }, 2000);
     }
-  }, [code]);
+  }, [code, currentIdx]);
 
   const handleSelectSet = async (set: QuestionSet) => {
     setActiveSet(set);
@@ -124,9 +130,11 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
     } catch (err) { alert("Portal Error."); } finally { setIsUnlocking(false); }
   };
 
-  const handleEvaluate = async () => {
-    if (!activeSet || !progress || isEvaluating) return;
-    const currentMission = activeSet.questions[currentIdx];
+  const handleEvaluate = async (qOverride?: Question, codeOverride?: string) => {
+    if (!activeSet || !progress || (isEvaluating && !qOverride)) return;
+    const currentMission = qOverride || activeSet.questions[currentIdx];
+    const currentCode = codeOverride || code;
+    
     setIsEvaluating(true);
     setLastResult(null);
     setStreamingFeedback('');
@@ -134,7 +142,7 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
     
     let accumulatedText = '';
     try {
-      const responseStream = await evaluateCodeStream(activeSet.language, currentMission.description, code);
+      const responseStream = await evaluateCodeStream(activeSet.language, currentMission.description, currentCode);
       
       for await (const chunk of responseStream) {
         const text = chunk.text;
@@ -145,42 +153,73 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
 
       const dataMatch = accumulatedText.match(/\[DATA\]([\s\S]*?)\[\/DATA\]/);
       if (dataMatch) {
-        try {
-          const result: AIResponse = JSON.parse(dataMatch[1]);
-          const earnedPoints = result.success ? currentMission.points : 0;
-          setLastResult({ ...result, score: earnedPoints });
+        const result: AIResponse = JSON.parse(dataMatch[1]);
+        const earnedPoints = result.success ? currentMission.points : 0;
+        setLastResult({ ...result, score: earnedPoints });
 
-          // Persistence logic
-          const newFeedback: FeedbackEntry = {
-            timestamp: Date.now(),
-            questionId: currentMission.id,
-            success: result.success,
-            score: earnedPoints,
-            feedback: result.feedback || streamingFeedback
-          };
+        const newFeedback: FeedbackEntry = {
+          timestamp: Date.now(),
+          questionId: currentMission.id,
+          success: result.success,
+          score: earnedPoints,
+          feedback: result.feedback || streamingFeedback
+        };
 
-          const isNewCompletion = result.success && !progress.completedQuestions.includes(currentMission.id);
-          const newProgress: StudentProgress = {
-            ...progress,
-            completedQuestions: isNewCompletion ? [...progress.completedQuestions, currentMission.id] : progress.completedQuestions,
-            scores: { ...progress.scores, [currentMission.id]: Math.max(progress.scores[currentMission.id] || 0, earnedPoints) },
-            draftCodes: { ...(progress.draftCodes || {}), [currentMission.id]: code },
-            feedbackHistory: [newFeedback, ...(progress.feedbackHistory || [])].slice(0, 10),
-            lastActive: Date.now()
-          };
-          
-          setProgress(newProgress);
-          await storageService.saveProgress(newProgress);
-          await refreshProfile();
-        } catch (e) {
-          console.error("JSON Parsing failed", e);
-        }
+        const isNewCompletion = result.success && !progress.completedQuestions.includes(currentMission.id);
+        const newProgress: StudentProgress = {
+          ...progress,
+          completedQuestions: isNewCompletion ? [...progress.completedQuestions, currentMission.id] : progress.completedQuestions,
+          scores: { ...progress.scores, [currentMission.id]: Math.max(progress.scores[currentMission.id] || 0, earnedPoints) },
+          draftCodes: { ...(progress.draftCodes || {}), [currentMission.id]: currentCode },
+          feedbackHistory: [newFeedback, ...(progress.feedbackHistory || [])].slice(0, 15),
+          lastActive: Date.now()
+        };
+        
+        setProgress(newProgress);
+        await storageService.saveProgress(newProgress);
+        if (result.success) await refreshProfile();
+        
+        return result;
       }
     } catch (error) {
-      alert('AI evaluation failed.');
+      console.error('AI evaluation failed.', error);
+      setStreamingFeedback('Uplink Interrupted. Please check logic and retry.');
     } finally {
       setIsEvaluating(false);
     }
+  };
+
+  const handleSyncAllStaged = async () => {
+    if (!activeSet || !progress || isSyncingAll) return;
+    
+    const stagedQuestions = activeSet.questions.filter(q => 
+      progress.draftCodes?.[q.id] && 
+      progress.draftCodes[q.id].trim() !== q.starterCode.trim() &&
+      !progress.completedQuestions.includes(q.id)
+    );
+
+    if (stagedQuestions.length === 0) {
+      alert("No pending drafts detected in the staging buffer.");
+      return;
+    }
+
+    setIsSyncingAll(true);
+    setRightPanelTab('diagnostic');
+
+    for (const q of stagedQuestions) {
+      // Set the active question so user can see progress
+      handleSelectQuestion(q);
+      const result = await handleEvaluate(q, progress.draftCodes?.[q.id]);
+      
+      // Stop batch processing if a failure occurs to let user see feedback
+      if (!result || !result.success) {
+        setIsSyncingAll(false);
+        return;
+      }
+    }
+    
+    setIsSyncingAll(false);
+    alert("Batch transmission complete. All staged nodes secured.");
   };
 
   const isDifficultyUnlocked = (diff: string) => {
@@ -193,7 +232,14 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
     return false;
   };
 
-  const getCompletedCountByDiff = (diff: string) => activeSet?.questions.filter(q => q.difficulty === diff && progress?.completedQuestions.includes(q.id)).length || 0;
+  const getStagedCount = () => {
+    if (!activeSet || !progress) return 0;
+    return activeSet.questions.filter(q => 
+      progress.draftCodes?.[q.id] && 
+      progress.draftCodes[q.id].trim() !== q.starterCode.trim() &&
+      !progress.completedQuestions.includes(q.id)
+    ).length;
+  };
 
   if (view === 'hub') {
     return (
@@ -233,26 +279,92 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
   const currentMission = activeSet.questions[currentIdx];
   const setTotalXp = Object.values(progress.scores).reduce((acc: number, v: any) => acc + (v || 0), 0);
   const setCompletionPercentage = Math.round((progress.completedQuestions.length / activeSet.questions.length) * 100);
+  const stagedCount = getStagedCount();
 
   return (
     <div className="flex-1 flex flex-col md:flex-row bg-slate-900 overflow-hidden text-slate-100 relative">
       <div className="w-full md:w-80 bg-slate-950 border-r border-white/5 flex flex-col flex-none">
         <div className="p-6 border-b border-white/5 bg-slate-900/40 flex justify-between items-center"><div><button onClick={() => setView('hub')} className="text-[9px] font-black uppercase text-indigo-400 hover:underline flex items-center gap-1 mb-2">← Exit Core</button><h2 className="text-xs font-black text-white uppercase tracking-widest truncate w-48">{activeSet.title}</h2></div></div>
         <div className="px-6 py-6 border-b border-white/5 bg-slate-900/20"><div className="flex justify-between items-end mb-2"><p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Protocol Progress</p><p className="text-[10px] font-black text-white">{setCompletionPercentage}%</p></div><div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-700" style={{ width: `${setCompletionPercentage}%` }}></div></div><div className="flex justify-between items-center mt-3"><span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Node XP</span><span className="text-sm font-black text-white">{setTotalXp}</span></div></div>
+        
+        {stagedCount > 0 && (
+          <button 
+            onClick={handleSyncAllStaged}
+            disabled={isSyncingAll}
+            className="m-4 bg-orange-600/20 border border-orange-500/30 p-3 rounded-xl flex items-center justify-between group hover:bg-orange-600/30 transition-all"
+          >
+            <div className="flex flex-col items-start">
+               <span className="text-[8px] font-black text-orange-400 uppercase tracking-widest">Buffer Status</span>
+               <span className="text-[10px] font-black text-white uppercase">{stagedCount} Nodes Staged</span>
+            </div>
+            <div className={`p-2 bg-orange-600 text-white rounded-lg group-hover:scale-110 transition-transform ${isSyncingAll ? 'animate-pulse' : ''}`}>
+              <ICONS.Globe className="w-3.5 h-3.5" />
+            </div>
+          </button>
+        )}
+
         <div className="flex border-b border-white/5">{difficulties.map(diff => { const unlocked = isDifficultyUnlocked(diff); return <button key={diff} disabled={!unlocked} onClick={() => { setSelectedDifficulty(diff); const first = activeSet.questions.find(q => q.difficulty === diff); if (first) handleSelectQuestion(first); }} className={`flex-1 py-4 text-[8px] font-black uppercase tracking-widest transition-all relative border-r border-white/5 last:border-0 group ${selectedDifficulty === diff ? 'text-white bg-indigo-600/10' : unlocked ? 'text-slate-600 hover:text-slate-400' : 'text-slate-800 opacity-40'}`}><span className="block truncate px-1">{diff}</span>{selectedDifficulty === diff && <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>}</button>; })}</div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2 dark-scrollbar">
-          {activeSet.questions.filter(q => q.difficulty === selectedDifficulty).map((q, idx) => (
-            <button key={q.id} onClick={() => handleSelectQuestion(q)} className={`w-full text-left p-4 rounded-xl border transition-all flex justify-between items-center ${currentMission.id === q.id ? 'bg-indigo-600/20 border-indigo-500/50 text-white shadow-lg' : 'bg-transparent border-white/5 text-slate-600 hover:bg-slate-900'}`}><div className="flex items-center gap-3"><span className="text-[10px] font-mono opacity-30">{idx + 1}</span><div><p className="font-black text-xs uppercase tracking-tight truncate w-36">{q.title}</p><p className="text-[9px] text-slate-700 font-black uppercase">{q.points} XP</p></div></div>{progress.completedQuestions.includes(q.id) && <div className="bg-green-500 text-white rounded-full p-1"><svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></div>}</button>
-          ))}
+          {activeSet.questions.filter(q => q.difficulty === selectedDifficulty).map((q, idx) => {
+            const isCompleted = progress.completedQuestions.includes(q.id);
+            const isStaged = progress.draftCodes?.[q.id] && progress.draftCodes[q.id].trim() !== q.starterCode.trim() && !isCompleted;
+            
+            return (
+              <button key={q.id} onClick={() => handleSelectQuestion(q)} className={`w-full text-left p-4 rounded-xl border transition-all flex justify-between items-center ${currentMission.id === q.id ? 'bg-indigo-600/20 border-indigo-500/50 text-white shadow-lg' : 'bg-transparent border-white/5 text-slate-600 hover:bg-slate-900'}`}><div className="flex items-center gap-3"><span className="text-[10px] font-mono opacity-30">{idx + 1}</span><div><p className="font-black text-xs uppercase tracking-tight truncate w-36">{q.title}</p><p className="text-[9px] text-slate-700 font-black uppercase">{q.points} XP</p></div></div>
+                {isCompleted ? (
+                  <div className="bg-green-500 text-white rounded-full p-1"><svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg></div>
+                ) : isStaged ? (
+                  <div className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]"></div>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-8 bg-slate-900/50 border-b border-white/5 flex-none max-h-[35vh] overflow-y-auto dark-scrollbar"><h3 className="text-xl font-black uppercase tracking-tight mb-3 text-white">{currentMission.title}</h3><p className="text-slate-400 text-sm leading-relaxed max-w-5xl whitespace-pre-wrap font-medium">{currentMission.description}</p></div>
+        <div className="p-8 bg-slate-900/50 border-b border-white/5 flex-none max-h-[35vh] overflow-y-auto dark-scrollbar flex justify-between items-start">
+          <div className="max-w-4xl">
+            <h3 className="text-xl font-black uppercase tracking-tight mb-3 text-white">{currentMission.title}</h3>
+            <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap font-medium">{currentMission.description}</p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              disabled={currentIdx === 0}
+              onClick={() => handleSelectQuestion(activeSet.questions[currentIdx - 1])}
+              className="p-3 bg-slate-800 rounded-xl hover:bg-slate-700 disabled:opacity-20"
+            >
+              <svg className="w-4 h-4 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+            </button>
+            <button 
+              disabled={currentIdx === activeSet.questions.length - 1}
+              onClick={() => handleSelectQuestion(activeSet.questions[currentIdx + 1])}
+              className="p-3 bg-slate-800 rounded-xl hover:bg-slate-700 disabled:opacity-20"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
           <div className="flex-1 flex flex-col border-r border-white/5 relative">
-             <div className="bg-slate-950 px-6 py-2.5 text-[9px] font-black text-slate-600 border-b border-white/5 flex justify-between items-center uppercase tracking-[0.2em]"><div><span className="text-indigo-400">{activeSet.language}</span> ENVIRONMENT {isSaving && <span className="text-indigo-500 animate-pulse ml-3">● Syncing Cloud</span>}</div>{progress.completedQuestions.includes(currentMission.id) && <span className="text-green-500">Node Status: Cleared</span>}</div>
+             <div className="bg-slate-950 px-6 py-2.5 text-[9px] font-black text-slate-600 border-b border-white/5 flex justify-between items-center uppercase tracking-[0.2em]"><div><span className="text-indigo-400">{activeSet.language}</span> ENVIRONMENT {isSaving && <span className="text-indigo-500 animate-pulse ml-3">● Staging...</span>}</div>{progress.completedQuestions.includes(currentMission.id) && <span className="text-green-500">Node Status: Secured</span>}</div>
              <textarea value={code} onChange={e => setCode(e.target.value)} className="flex-1 w-full bg-slate-950 p-8 font-mono text-indigo-100/80 resize-none outline-none leading-relaxed text-sm dark-scrollbar selection:bg-indigo-500/30" spellCheck={false} />
-             <div className="absolute bottom-8 right-8"><button onClick={handleEvaluate} disabled={isEvaluating} className="px-10 py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-2xl shadow-indigo-500/20 active:scale-95 disabled:bg-slate-800 uppercase text-[10px] tracking-[0.2em] transition-all">{isEvaluating ? 'Transmitting Data...' : 'Transmit Sequence'}</button></div>
+             <div className="absolute bottom-8 right-8 flex gap-4">
+                <button 
+                  onClick={() => {
+                    if (currentIdx < activeSet.questions.length - 1) {
+                      handleSelectQuestion(activeSet.questions[currentIdx + 1]);
+                    } else {
+                      setView('hub');
+                    }
+                  }}
+                  className="px-6 py-5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+                >
+                  Stage & Next
+                </button>
+                <button onClick={() => handleEvaluate()} disabled={isEvaluating} className="px-10 py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-2xl shadow-indigo-500/20 active:scale-95 disabled:bg-slate-800 uppercase text-[10px] tracking-[0.2em] transition-all">
+                  {isEvaluating ? 'Transmitting...' : 'Uplink Node'}
+                </button>
+             </div>
           </div>
           <div className="w-full md:w-[400px] bg-slate-950 flex flex-col">
             <div className="flex border-b border-white/5">
@@ -282,9 +394,23 @@ const StudentPortal: React.FC<StudentPortalProps> = ({ profile, onLogout }) => {
                     {lastResult.success && (
                       <button onClick={() => {
                           const visible = activeSet.questions.filter(q => q.difficulty === selectedDifficulty);
-                          const next = visible.findIndex(q => q.id === currentMission.id) + 1;
-                          if (next < visible.length) handleSelectQuestion(visible[next]);
-                          else setView('hub');
+                          const nextIdxInDiff = visible.findIndex(q => q.id === currentMission.id) + 1;
+                          if (nextIdxInDiff < visible.length) {
+                            handleSelectQuestion(visible[nextIdxInDiff]);
+                          } else {
+                            const nextGlobalIdx = currentIdx + 1;
+                            if (nextGlobalIdx < activeSet.questions.length) {
+                               const nextQ = activeSet.questions[nextGlobalIdx];
+                               if (isDifficultyUnlocked(nextQ.difficulty)) {
+                                 setSelectedDifficulty(nextQ.difficulty as any);
+                                 handleSelectQuestion(nextQ);
+                               } else {
+                                 setView('hub');
+                               }
+                            } else {
+                               setView('hub');
+                            }
+                          }
                         }}
                         className="w-full py-5 mt-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl shadow-indigo-500/20"
                       >Advance Sequence →</button>
